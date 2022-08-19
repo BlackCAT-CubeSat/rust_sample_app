@@ -3,14 +3,15 @@
 
 //! Constants for rust_sample.
 
-use cfs::cfe::evs::bin_filter as filt;
-use cfs::cfe::evs::BinFilter;
-use cfs::cfe::msg::FunctionCode;
-use cfs::cfe::sb::MsgId_Atom;
+use n2o4::cfe::evs::bin_filter as filt;
+use n2o4::cfe::evs::BinFilter;
+use n2o4::cfe::msg::FunctionCode;
+use n2o4::cfe::sb::MsgId_Atom;
 
 // Event IDs:
 
 /// Event ID: reserved.
+#[allow(dead_code)]
 pub const RESERVED_EID: u16 = 0;
 
 /// Event ID:

@@ -11,8 +11,8 @@ extern crate printf_wrap;
 
 use core::num::Wrapping;
 use n2o4::cfe::evs::EventType as EvT;
-use n2o4::cfe::msg::{Command, Telemetry};
-use n2o4::cfe::{es, evs, msg, sb, Status};
+use n2o4::cfe::msg::{Command, Message, Telemetry};
+use n2o4::cfe::{es, evs, sb, Status};
 use printf_wrap::{null_str, NullString};
 
 use crate::constants::*;
@@ -34,7 +34,7 @@ mod panic;
 /// Queue depth for the application's message pipe.
 const PIPE_DEPTH: u16 = 32;
 /// System name for the application's message pipe.
-const PIPE_NAME: NullString = null_str!("RUST_SAMPLE_APP_CMD_PIPE");
+const PIPE_NAME: NullString = null_str!("RUST_SAMPLE_PIPE");
 
 /// The application's state.
 struct AppState {
@@ -79,7 +79,7 @@ fn app() -> Result<(), Status> {
     while keep_running && es::run_loop(Some(es::RunStatus::AppRun)) {
         es::perf_log_exit(RUST_SAMPLE_APP_PERF_ID);
 
-        let _ = pipe.receive_buffer(sb::TimeOut::PendForever, |buf_maybe| {
+        let _: Result<(), Status> = pipe.receive_buffer(sb::TimeOut::PendForever, |buf_maybe| {
             es::perf_log_entry(RUST_SAMPLE_APP_PERF_ID);
             let buf = buf_maybe.map_err(|status| {
                 state.ev.send_event_str(
@@ -88,12 +88,12 @@ fn app() -> Result<(), Status> {
                     "RUST_SAMPLE: SB pipe read error, app will exit",
                 );
                 keep_running = false;
+                status
             })?;
 
             let _ = process_message(&mut state, buf);
             Ok(())
         });
-        Ok(())
     }
 
     Ok(())
@@ -127,7 +127,7 @@ fn initialize() -> Result<(AppState, sb::Pipe), Status> {
             ev.send_event2(
                 STARTUP_INF_EID,
                 EvT::Critical,
-                pfmt!("RUST_SAMPLE: error subscribing to packet 0x04x, code = 0x%08x"),
+                pfmt!("RUST_SAMPLE: error subscribing to packet 0x%04x, code = 0x%08x"),
                 mid,
                 status.as_num(),
             );
@@ -147,27 +147,28 @@ fn initialize() -> Result<(AppState, sb::Pipe), Status> {
     })?;
 
     let state = AppState {
-        cmd_counter: 0.into(),
-        err_counter: 0.into(),
+        cmd_counter: Wrapping(0),
+        err_counter: Wrapping(0),
         ev,
         tlm,
     };
 
-    ev.send_event_str(STARTUP_INF_EID, EvT::Information, "RUST_SAMPLE: app initialized.");
+    state.ev.send_event_str(STARTUP_INF_EID, EvT::Information, "RUST_SAMPLE: app initialized.");
 
     Ok((state, pipe))
 }
 
 /// Having received a message, figures out what to do with it.
-fn process_message(state: &mut AppState, msg: &msg::Message) -> Result<(), Status> {
+fn process_message(state: &mut AppState, msg: &Message) -> Result<(), Status> {
     let msgid: Result<sb::MsgId_Atom, Status> = msg.msgid().map(|m| m.into());
 
     match msgid {
         Err(status) => {
-            state.ev.send_event_str(
+            state.ev.send_event1(
                 INVALID_MSGID_ERR_EID,
                 EvT::Error,
-                "RUST_SAMPLE: unable to get message ID",
+                pfmt!("RUST_SAMPLE: unable to get message ID, error code = 0x%08x"),
+                status.as_num(),
             );
         }
         // Command message:
@@ -192,7 +193,7 @@ fn process_message(state: &mut AppState, msg: &msg::Message) -> Result<(), Statu
 }
 
 /// Handles a command ([`RUST_SAMPLE_CMD_MID`]) sent to the application.
-fn process_command(state: &mut AppState, msg: &msg::Message) -> Result<(), Status> {
+fn process_command(state: &mut AppState, msg: &Message) -> Result<(), Status> {
     match msg.fcn_code() {
         Err(status) => {
             state.ev.send_event1(
@@ -203,13 +204,16 @@ fn process_command(state: &mut AppState, msg: &msg::Message) -> Result<(), Statu
             );
         }
         Ok(NOOP_CC) => {
-            noop(state, verify_cmd_pkt(state, msg)?)?;
+            let cmd = verify_cmd_pkt(state, msg)?;
+            noop(state, cmd)?;
         }
         Ok(RESET_COUNTERS_CC) => {
-            reset_counters(state, verify_cmd_pkt(state, msg)?)?;
+            let cmd = verify_cmd_pkt(state, msg)?;
+            reset_counters(state, cmd)?;
         }
         Ok(PROCESS_CC) => {
-            process(state, verify_cmd_pkt(state, msg)?)?;
+            let cmd = verify_cmd_pkt(state, msg)?;
+            process(state, cmd)?;
         }
         Ok(cc) => {
             state.ev.send_event1(
@@ -227,13 +231,12 @@ fn process_command(state: &mut AppState, msg: &msg::Message) -> Result<(), Statu
 ///
 /// This function gathers the app's telemetry, packetize it,
 /// and send it over the software bus to the housekeeping task.
-fn report_housekeeping(state: &mut AppState, msg: &msg::Message) -> Result<(), Status> {
+fn report_housekeeping(state: &mut AppState, _msg: &Message) -> Result<(), Status> {
     let t = &mut state.tlm.payload;
-    (t.command_counter, t.command_error_counter) =
-        (state.cmd_counter.into(), state.err_counter.into());
+    (t.command_counter, t.command_error_counter) = (state.cmd_counter.0, state.err_counter.0);
 
-    state.tlm.time_stamp()?;
-    state.tlm.transmit(true)?;
+    let _ = state.tlm.time_stamp();
+    let _ = state.tlm.transmit(true);
 
     Ok(())
 }
@@ -249,7 +252,7 @@ fn noop(state: &mut AppState, _cmd: &Command<()>) -> Result<(), Status> {
 
 /// Processes a "reset counters" command.
 fn reset_counters(state: &mut AppState, _cmd: &Command<()>) -> Result<(), Status> {
-    (state.cmd_counter, state.err_counter) = (0.into(), 0.into());
+    (state.cmd_counter, state.err_counter) = (Wrapping(0), Wrapping(0));
 
     state.ev.send_event_str(COMMANDRST_INF_EID, EvT::Information, "RUST_SAMPLE: RESET command");
 
@@ -263,12 +266,12 @@ fn process(_state: &mut AppState, _cmd: &Command<()>) -> Result<(), Status> {
     Ok(())
 }
 
-/// Tries to cast a [`Message`](msg::Message) to a [`Command`] with appropriate payload.
-fn verify_cmd_pkt<T: Copy>(
+/// Tries to cast a [`Message`] to a [`Command`] with appropriate payload.
+fn verify_cmd_pkt<'a, T: Copy>(
     state: &mut AppState,
-    msg: &msg::Message,
-) -> Result<&Command<T>, Status> {
-    msg.try_cast_cmd().map_err(|s| {
+    msg: &'a Message,
+) -> Result<&'a Command<T>, Status> {
+    msg.try_cast_cmd().map_err(|status| {
         let msgid: sb::MsgId_Atom = msg.msgid().map(|id| id.into()).unwrap_or(0);
 
         state.ev.send_event4(

@@ -3,8 +3,8 @@
 
 //! Panic handling for the application.
 
-use cfs::cfe::es;
-use cfs::cfe::es::RunStatus;
+use n2o4::cfe::es;
+use n2o4::cfe::es::RunStatus;
 
 /// Whether to restart the application on panic.
 /// If false, the application will exit on panic instead.

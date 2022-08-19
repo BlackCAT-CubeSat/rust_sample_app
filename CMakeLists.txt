@@ -9,4 +9,4 @@ add_cfe_app(rust_sample fsw/src/placebo.c)
 
 cfe_rust_crate(rust_sample rust_sample)
 
-target_link_options(rust_sample PUBLIC LINKER:--require-defined=RUST_SAMPLE_AppMain)
+target_link_options(rust_sample PUBLIC LINKER:--require-defined=SAMPLE_APP_Main)
