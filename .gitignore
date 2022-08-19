@@ -1,0 +1,8 @@
+# Generated files
+/rust-fsw/target
+*.o
+
+# Editor tempfiles
+*~
+~*
+*.swp

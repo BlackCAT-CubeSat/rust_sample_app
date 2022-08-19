@@ -1,0 +1,22 @@
+[package]
+name = "rust_sample"
+description = "Example cFS application in Rust"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+n2o4 = { git = "https://github.com/BlackCAT-CubeSat/n2o4.git", rev = "ad051cf694927992d0b27f68bf9e0eb9b346b892" }
+printf-wrap = { version = "^0.1", default-features = false }
+
+# This code will not be operating in an environment where unwinding the stack
+# on a panic will do anything useful:
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
